@@ -14,19 +14,11 @@ if not os.path.isfile(GROUPS_PATH):
     print(f"[ERROR] groups.txt not found at {GROUPS_PATH}. Please create it with your group links.")
     exit(1)
 
-# Read links from groups.txt
-links = []
-with open(GROUPS_PATH, 'r', encoding='utf-8') as f:
-    for line in f:
-        line = line.strip()
-        if line and line.startswith('http'):
-            links.append(line)
 
-total_links = len(links)
-num_bots = 10
-links_per_bot = total_links // num_bots
-if total_links % num_bots:
-    links_per_bot += 1
+# Collect group links using Telethon and write to groups.py
+import sys
+import asyncio
+from telethon import TelegramClient
 
 # Template for start.py
 bot_code = ("""
@@ -134,14 +126,82 @@ async def main():
 asyncio.run(main())
 """)
 
-# Create bot directories and start.py files
-for i in range(1, num_bots + 1):
-    bot_dir = os.path.join(os.path.dirname(__file__), f'bot{i}')
-    os.makedirs(bot_dir, exist_ok=True)
-    start_path = os.path.join(bot_dir, 'start.py')
-    from_item = (i-1)*links_per_bot
-    to_item = min(i*links_per_bot, total_links)
-    bot_code_str = ''.join(bot_code)
-    bot_code_str = bot_code_str.replace('{FROM_ITEM}', str(from_item)).replace('{TO_ITEM}', str(to_item))
-    with open(start_path, 'w', encoding='utf-8') as sf:
-        sf.write(bot_code_str)
+GROUPS_TXT_PATH = os.path.join(os.path.dirname(__file__), 'groups.txt')
+
+def get_api_credentials():
+    try:
+        from api import apiId, apiHash, sessionName
+        return apiId(), apiHash(), sessionName()
+    except Exception as e:
+        print(f"[ERROR] Failed to import API credentials: {e}")
+        return None, None, None
+
+async def collect_group_links():
+    api_id, api_hash, session_name = get_api_credentials()
+    if not all([api_id, api_hash, session_name]):
+        print("[ERROR] Missing API credentials.")
+        return []
+    client = TelegramClient(session_name, api_id, api_hash)
+    await client.start()
+    group_links = set()
+    async for dialog in client.iter_dialogs():
+        if not dialog.is_group:
+            continue
+        chat = dialog.entity
+        username = getattr(chat, "username", None)
+        if not username:
+            continue
+        group_link = f"https://t.me/{username}"
+        group_links.add(group_link)
+    await client.disconnect()
+    return sorted(group_links)
+
+def write_groups_txt(links):
+    with open(GROUPS_TXT_PATH, "w", encoding="utf-8") as f:
+        for link in links:
+            f.write(f"{link}\n")
+
+def load_groups_txt():
+    if not os.path.isfile(GROUPS_TXT_PATH):
+        print(f"[ERROR] groups.txt not found at {GROUPS_TXT_PATH}.")
+        return []
+    with open(GROUPS_TXT_PATH, "r", encoding="utf-8") as f:
+        return [line.strip() for line in f.readlines()]
+def write_groups_py(links):
+    groups_py_path = os.path.join(os.path.dirname(__file__), 'groups.txt')
+    with open(groups_py_path, "w", encoding="utf-8") as f:
+        f.write("GROUPS = [\n")
+        for link in links:
+            f.write(f"    '{link}',\n")
+        f.write("]\n")
+async def main():
+    print("Collecting group links...")
+    links = await collect_group_links()
+    if not links:
+        print("[ERROR] No group links found.")
+        return
+    write_groups_txt(links)
+    print(f"[OK] Wrote {len(links)} group links to groups.txt.")
+
+    # Load group links for bot setup
+    group_links = load_groups_txt()
+    total_links = len(group_links)
+    num_bots = 10
+    links_per_bot = total_links // num_bots
+    if total_links % num_bots:
+        links_per_bot += 1
+
+    # Create bot directories and start.py files
+    for i in range(1, num_bots + 1):
+        bot_dir = os.path.join(os.path.dirname(__file__), f'bot{i}')
+        os.makedirs(bot_dir, exist_ok=True)
+        start_path = os.path.join(bot_dir, 'start.py')
+        from_item = (i-1)*links_per_bot
+        to_item = min(i*links_per_bot, total_links)
+        bot_code_str = ''.join(bot_code)
+        bot_code_str = bot_code_str.replace('{FROM_ITEM}', str(from_item)).replace('{TO_ITEM}', str(to_item))
+        with open(start_path, 'w', encoding='utf-8') as sf:
+            sf.write(bot_code_str)
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -28,7 +28,7 @@ except Exception as e:
     session_name = None
     KEYWORDS = None
     FORMATS = []
-TARGET_GROUPS = load_target_groups(groups_path, fromItem=15, toItem=30)
+TARGET_GROUPS = load_target_groups(groups_path, fromItem=30, toItem=60)
 last_format_index = {}
 active_groups = set()
 client = TelegramClient(session_name, api_id, api_hash)
